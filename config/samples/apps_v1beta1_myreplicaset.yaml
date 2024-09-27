@@ -1,0 +1,9 @@
+apiVersion: apps.opsblogs.cn/v1beta1
+kind: MyReplicaSet
+metadata:
+  labels:
+    app.kubernetes.io/name: devops-test
+    app.kubernetes.io/managed-by: kustomize
+  name: myreplicaset-sample
+spec:
+  # TODO(user): Add fields here

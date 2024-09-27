@@ -1,0 +1,27 @@
+# permissions for end users to edit myreplicasets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: devops-test
+    app.kubernetes.io/managed-by: kustomize
+  name: myreplicaset-editor-role
+rules:
+- apiGroups:
+  - apps.opsblogs.cn
+  resources:
+  - myreplicasets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps.opsblogs.cn
+  resources:
+  - myreplicasets/status
+  verbs:
+  - get
