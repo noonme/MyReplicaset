@@ -27,6 +27,8 @@ import (
 // MyReplicaSetSpec defines the desired state of MyReplicaSet
 type MyReplicaSetSpec struct {
 	// Replicas is the number of desired replicas
+	Selector *metav1.LabelSelector `json:"selector" protobuf:"bytes,2,opt,name=selector"`
+
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 	// Template is the object that describes the pod that will be created for the replicas

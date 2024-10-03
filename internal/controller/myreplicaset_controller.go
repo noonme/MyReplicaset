@@ -18,7 +18,12 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/klog/v2"
 	"time"
 
 	appsv1beta1 "devops-test/api/v1beta1"
@@ -101,15 +106,29 @@ func (r *MyReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Define a new Pod object
-	pods := &v1.PodList{}
-
-	listOpts := []client.ListOption{
-		client.InNamespace(myReplicaSet.Namespace),
-		client.MatchingLabels(myReplicaSet.Spec.Template.Labels),
-	}
-
-	if err := r.Client.List(ctx, pods, listOpts[0]); err != nil {
+	podList := &v1.PodList{}
+	labelSelector := myReplicaSet.Spec.Template.ObjectMeta.Labels
+	if err := r.Client.List(ctx, podList, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labelSelector),
+		Namespace:     myReplicaSet.Namespace,
+	}); err != nil {
 		return reconcile.Result{}, err
+	} else {
+		fmt.Printf("Found %d Pods in namespace %s\n", len(podList.Items), myReplicaSet.Namespace)
+
+		dep, err := r.podForMyReplicaset(&myReplicaSet, myReplicaSet.Spec)
+		for _, y := range dep {
+			if err = r.Create(ctx, y); err != nil {
+				klog.Error(err, "Failed to create new Deployment",
+					"Deployment.Namespace", y.Namespace, "Deployment.Name", y.Name)
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Deployment created successfully
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
 	// Set MyReplicaSet instance as the owner and controller
@@ -126,6 +145,95 @@ func (r *MyReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Periodically requeue reconciliation requests for MyReplicaSet
 	return reconcile.Result{RequeueAfter: time.Second * 10}, nil
+}
+
+func labelsForMyReplicaset(myreplicaset appsv1beta1.MyReplicaSetSpec) map[string]string {
+	//var imageTag string
+	//os.Setenv("MEMCACHED_IMAGE", "dockerproxy.cn/memcached:1.4.36-alpine")
+	//image, err := imageForMemcached()
+	//if err == nil {
+	//	imageTag = strings.Split(image, ":")[1]
+	//}
+	//return map[string]string{"app.kubernetes.io/name": "project",
+	//	"app.kubernetes.io/version":    imageTag,
+	//	"app.kubernetes.io/managed-by": "MemcachedController",
+	//}
+
+	label := myreplicaset.Selector.MatchLabels
+
+	return label
+}
+
+func (r *MyReplicaSetReconciler) podForMyReplicaset(
+	myreplicaset *appsv1beta1.MyReplicaSet, label appsv1beta1.MyReplicaSetSpec) ([]*v1.Pod, error) {
+	ls := labelsForMyReplicaset(label)
+	replicas := myreplicaset.Spec.Replicas
+
+	dep := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      myreplicaset.Name,
+			Namespace: myreplicaset.Namespace,
+			Labels:    ls,
+		},
+		Spec: v1.PodSpec{
+			// TODO(user): Uncomment the following code to configure the nodeAffinity expression
+			// according to the platforms which are supported by your solution. It is considered
+			// best practice to support multiple architectures. build your manager image using the
+			// makefile target docker-buildx. Also, you can use docker manifest inspect <image>
+			// to check what are the platforms supported.
+			// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity
+			SecurityContext: &v1.PodSecurityContext{
+				RunAsNonRoot: &[]bool{true}[0],
+				// IMPORTANT: seccomProfile was introduced with Kubernetes 1.19
+				// If you are looking for to produce solutions to be supported
+				// on lower versions you must remove this option.
+				SeccompProfile: &v1.SeccompProfile{
+					Type: v1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
+			Containers: []v1.Container{{
+				Image:           label.Template.Spec.Containers[0].Image,
+				Name:            label.Template.Spec.Containers[0].Name,
+				ImagePullPolicy: v1.PullIfNotPresent,
+				Resources: v1.ResourceRequirements{
+					Limits: v1.ResourceList{
+						"cpu": resource.MustParse("1"),
+
+						"memory": resource.MustParse("512Mi"),
+					},
+					Requests: v1.ResourceList{
+
+						"cpu":    resource.MustParse("1"),
+						"memory": resource.MustParse("512Mi"),
+					},
+				},
+				// Ensure restrictive context for the container
+				// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
+				SecurityContext: &v1.SecurityContext{
+					RunAsNonRoot:             &[]bool{true}[0],
+					RunAsUser:                &[]int64{1001}[0],
+					AllowPrivilegeEscalation: &[]bool{false}[0],
+					Capabilities: &v1.Capabilities{
+						Drop: []v1.Capability{
+							"ALL",
+						},
+					},
+				},
+			}},
+		},
+	}
+
+	// Set the ownerRef for the Deployment
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
+
+	var deps []*v1.Pod
+	for i := 0; i < int(replicas); i++ {
+		if err := ctrl.SetControllerReference(myreplicaset, dep, r.Scheme); err != nil {
+			return nil, err
+		}
+		deps = append(deps, dep)
+	}
+	return deps, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
