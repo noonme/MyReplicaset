@@ -18,11 +18,11 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/klog/v2"
 	"time"
 
@@ -114,13 +114,13 @@ func (r *MyReplicaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}); err != nil {
 		return reconcile.Result{}, err
 	} else {
-		fmt.Printf("Found %d Pods in namespace %s\n", len(podList.Items), myReplicaSet.Namespace)
+		klog.Error("Found %d Pods in namespace %s\n ", len(podList.Items), myReplicaSet.Namespace)
 
 		dep, err := r.podForMyReplicaset(&myReplicaSet, myReplicaSet.Spec)
 		for _, y := range dep {
 			if err = r.Create(ctx, y); err != nil {
-				klog.Error(err, "Failed to create new Deployment",
-					"Deployment.Namespace", y.Namespace, "Deployment.Name", y.Name)
+				klog.Error(err, "Failed to create new MyReplicaset pods ",
+					"MyReplicaset.Namespace ", y.Namespace, "MyReplicaset.Name ", y.Name)
 				return ctrl.Result{}, err
 			}
 		}
@@ -164,6 +164,24 @@ func labelsForMyReplicaset(myreplicaset appsv1beta1.MyReplicaSetSpec) map[string
 	return label
 }
 
+func Rand() string {
+
+	rand.Seed(time.Now().UnixNano())
+	// 定义字符集，包含字母和数字
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	// 生成5位随机组合
+
+	randomString := make([]byte, 5)
+	for i := 0; i < 5; i++ {
+		randomString[i] = charset[rand.Intn(len(charset))]
+	}
+
+	//fmt.Println("Generated random string:", string(randomString))
+
+	return string(randomString)
+}
+
 func (r *MyReplicaSetReconciler) podForMyReplicaset(
 	myreplicaset *appsv1beta1.MyReplicaSet, label appsv1beta1.MyReplicaSetSpec) ([]*v1.Pod, error) {
 	ls := labelsForMyReplicaset(label)
@@ -171,7 +189,7 @@ func (r *MyReplicaSetReconciler) podForMyReplicaset(
 
 	dep := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      myreplicaset.Name,
+			Name:      myreplicaset.Name + Rand(),
 			Namespace: myreplicaset.Namespace,
 			Labels:    ls,
 		},
@@ -182,15 +200,15 @@ func (r *MyReplicaSetReconciler) podForMyReplicaset(
 			// makefile target docker-buildx. Also, you can use docker manifest inspect <image>
 			// to check what are the platforms supported.
 			// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity
-			SecurityContext: &v1.PodSecurityContext{
-				RunAsNonRoot: &[]bool{true}[0],
-				// IMPORTANT: seccomProfile was introduced with Kubernetes 1.19
-				// If you are looking for to produce solutions to be supported
-				// on lower versions you must remove this option.
-				SeccompProfile: &v1.SeccompProfile{
-					Type: v1.SeccompProfileTypeRuntimeDefault,
-				},
-			},
+			//SecurityContext: &v1.PodSecurityContext{
+			//	RunAsNonRoot: &[]bool{true}[0],
+			//	// IMPORTANT: seccomProfile was introduced with Kubernetes 1.19
+			//	// If you are looking for to produce solutions to be supported
+			//	// on lower versions you must remove this option.
+			//	SeccompProfile: &v1.SeccompProfile{
+			//		Type: v1.SeccompProfileTypeRuntimeDefault,
+			//	},
+			//},
 			Containers: []v1.Container{{
 				Image:           label.Template.Spec.Containers[0].Image,
 				Name:            label.Template.Spec.Containers[0].Name,
@@ -209,16 +227,16 @@ func (r *MyReplicaSetReconciler) podForMyReplicaset(
 				},
 				// Ensure restrictive context for the container
 				// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-				SecurityContext: &v1.SecurityContext{
-					RunAsNonRoot:             &[]bool{true}[0],
-					RunAsUser:                &[]int64{1001}[0],
-					AllowPrivilegeEscalation: &[]bool{false}[0],
-					Capabilities: &v1.Capabilities{
-						Drop: []v1.Capability{
-							"ALL",
-						},
-					},
-				},
+				//SecurityContext: &v1.SecurityContext{
+				//	RunAsNonRoot:             &[]bool{true}[0],
+				//	RunAsUser:                &[]int64{1001}[0],
+				//	AllowPrivilegeEscalation: &[]bool{false}[0],
+				//	Capabilities: &v1.Capabilities{
+				//		Drop: []v1.Capability{
+				//			"ALL",
+				//		},
+				//	},
+				//},
 			}},
 		},
 	}
@@ -227,7 +245,8 @@ func (r *MyReplicaSetReconciler) podForMyReplicaset(
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
 
 	var deps []*v1.Pod
-	for i := 0; i < int(replicas); i++ {
+
+	for i := 0; i < int(*replicas); i++ {
 		if err := ctrl.SetControllerReference(myreplicaset, dep, r.Scheme); err != nil {
 			return nil, err
 		}
