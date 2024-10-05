@@ -1,12 +1,13 @@
-apiVersion: apps.opsblogs.cn/v1beta1
-kind: MyReplicaSet
+apiVersion: apps/v1
+kind: ReplicaSet
 metadata:
+  name: nginx-replicaset
+  namespace: project-system
   labels:
     app: nginx
-  name: myreplicaset-sample
-  namespace: project-system
 spec:
-  replicas: 1
+  # 指定期望的Pod副本数量
+  replicas: 2
   selector:
     matchLabels:
       app: nginx
@@ -20,4 +21,3 @@ spec:
         image: nginx:latest
         ports:
         - containerPort: 80
-
